@@ -657,10 +657,8 @@ dwarf_types_parse2(struct elf_ctx *elf_ctx, uint16_t index, void *ptr)
 }
 #endif
 
-static int
-dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **ret_ptr)
-{
-    void *ptr = *ret_ptr;
+struct data {
+    size_t len;
     union {
         uint8_t uint8;
         uint16_t uint16;
@@ -668,7 +666,14 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         uint64_t uint64;
         void *addr;
     } data;
-    //size_t byte_size = 0;
+};
+
+static struct data *
+dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **ret_ptr)
+{
+    void *ptr = *ret_ptr;
+    static struct data data; // return value, must copy before called again!
+    size_t len;
 
     memset(&data, 0, sizeof(data));
 
@@ -677,48 +682,72 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         printf("ADDR NOT IMPLEMENTED\n");
         break;
     case DW_FORM_block2:
-        printf("BLOCK2 NOT IMPLEMENTED\n");
+        //printf("BLOCK2 NOT IMPLEMENTED\n");
+        len = *(uint16_t *)ptr;
+        ptr += 2;
+        data.data.addr = ptr;
+        data.len = len;
+        ptr += len;
         break;
     case DW_FORM_block4:
-        printf("BLOCK4 NOT IMPLEMENTED\n");
+        //printf("BLOCK4 NOT IMPLEMENTED\n");
+        len = *(uint32_t *)ptr;
+        ptr += 4;
+        data.data.addr = ptr;
+        data.len = len;
+        ptr += len;
         break;
     case DW_FORM_data2:
-        data.uint16 = *(uint16_t *)ptr;
-        ptr += 2;
+        data.data.uint16 = *(uint16_t *)ptr;
+        data.len = 2;
+        ptr += data.len;
         break;
     case DW_FORM_data4:
-        data.uint32 = *(uint32_t *)ptr;
-        ptr += 4;
+        data.data.uint32 = *(uint32_t *)ptr;
+        data.len = 4;
+        ptr += data.len;
         break;
     case DW_FORM_data8:
-        data.uint64 = *(uint64_t *)ptr;
-        ptr += 8;
+        data.data.uint64 = *(uint64_t *)ptr;
+        data.len = 8;
+        ptr += data.len;
         break;
     case DW_FORM_string:
-        data.addr = ptr;
-        ptr += strlen(ptr) + 1;
-        printf("STRING: \"%s\"\n", (char *)data.addr);
+        data.data.addr = ptr;
+        data.len = strlen(ptr) + 1;
+        ptr += data.len;
+        //printf("STRING: \"%s\"\n", (char *)data.addr);
         break;
     case DW_FORM_block:
-        printf("BLOCK NOT IMPLEMENTED\n");
+        //printf("BLOCK NOT IMPLEMENTED\n");
+        data.len = dwarf_parse_leb128((uint8_t **)ret_ptr);
+        data.data.addr = ptr;
+        ptr += data.len;
         break;
     case DW_FORM_block1:
-        printf("BLOCK1 NOT IMPLEMENTED\n");
+        //printf("BLOCK1 NOT IMPLEMENTED\n");
+        data.len = *(uint8_t *)ptr;
+        ptr += 1;
+        data.data.addr = ptr;
+        ptr += data.len;
         break;
     case DW_FORM_data1:
-        data.uint8 = *(uint8_t *)ptr;
-        ptr += 1;
+        data.data.uint8 = *(uint8_t *)ptr;
+        data.len = 1;
+        ptr += data.len;
         break;
     case DW_FORM_flag:
         printf("FLAG NOT IMPLEMENTED\n");
         break;
     case DW_FORM_sdata:
-        data.uint64 = dwarf_parse_leb128((uint8_t **)&ptr);
+        data.data.uint64 = dwarf_parse_leb128((uint8_t **)&ptr);
+        data.len = sizeof(uint64_t);       // assume biggest int
         break;
     case DW_FORM_strp:
-        data.addr = elf_ctx->dwarf_debug_str + *(uint32_t *)ptr;
+        data.data.addr = elf_ctx->dwarf_debug_str + *(uint32_t *)ptr;
         ptr += 4;
-        printf("STRP: \"%s\"\n", (char *)data.addr);
+        data.len = strlen(data.data.addr) + 1;
+        //printf("STRP: \"%s\"\n", (char *)data.addr);
         break;
     case DW_FORM_udata:
         printf("UDATA NOT IMPLEMENTED\n");
@@ -727,20 +756,24 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         printf("REF ADDR NOT IMPLEMENTED\n");
         break;
     case DW_FORM_ref1:
-        data.uint8 = *(uint8_t *)ptr;
-        ptr += 1;
+        data.data.uint8 = *(uint8_t *)ptr;
+        data.len = 1;
+        ptr += data.len;
         break;
     case DW_FORM_ref2:
-        data.uint16 = *(uint16_t *)ptr;
-        ptr += 2;
+        data.data.uint16 = *(uint16_t *)ptr;
+        data.len = 2;
+        ptr += data.len;
         break;
     case DW_FORM_ref4:
-        data.uint32 = *(uint32_t *)ptr;
-        ptr += 4;
+        data.data.uint32 = *(uint32_t *)ptr;
+        data.len = 4;
+        ptr += data.len;
         break;
     case DW_FORM_ref8:
-        data.uint64 = *(uint64_t *)ptr;
-        ptr += 8;
+        data.data.uint64 = *(uint64_t *)ptr;
+        data.len = 8;
+        ptr += data.len;
         break;
     case DW_FORM_ref_udata:
         printf("REF UDATA NOT IMPLEMENTED\n");
@@ -749,8 +782,9 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         printf("INDIRECT NOT IMPLEMENTED\n");
         break;
     case DW_FORM_sec_offset:
-        data.uint32 = *(uint32_t *)ptr;
-        ptr += 4;
+        data.data.uint32 = *(uint32_t *)ptr;
+        data.len = 4;
+        ptr += data.len;
         break;
     case DW_FORM_exprloc:
         printf("EXPRLOC NOT IMPLEMENTED\n");
@@ -759,48 +793,19 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         printf("FLAG PRES NOT IMPLEMENTED\n");
         break;
     case DW_FORM_ref_sig8:
-        data.uint64 = *(uint64_t *)ptr;
+        data.data.uint64 = *(uint64_t *)ptr;
         ptr += 8;
+        data.len = 0;       // TODO: I dont know???
         break;
     default:
         hexdump(ptr, 32);
         break;
     }
 
-#if 0
-    case DW_AT_sibling: // ??
-        break;
-    case DW_AT_name:
-        break;
-    case DW_AT_ordering:
-        break;
-    case DW_AT_byte_size:
-        break;
-    case DW_AT_bit_offset:
-        break;
-    case DW_AT_bit_size:
-        break;
-    case DW_AT_element_list:
-        break;
-    case DW_AT_language:
-        language = 1;
-        break;
-    case DW_AT_member:
-        break;
-    case DW_AT_base_types:
-        break;
-    case DW_AT_type:
-        break;
-    default:
-        printf("UNIMPLEMENTED AT!\n");
-        hexdump(ptr, 10);
-        break;
-    }
-#endif
-    fprintf(stderr, "data: %lx\n", data.uint64);
+    //fprintf(stderr, "data: %lx\n", data.uint64);
 
     *ret_ptr = ptr;
-    return 0;
+    return &data;
 }
 
 static int
@@ -815,16 +820,18 @@ dwarf_types_find(struct elf_ctx *elf_ctx, char *struct_name)
     void *start_ptr;
     size_t len;
     int level;
+    struct data *data;
 
     len = elf_ctx->dwarf_debug_types_sh->sh_size;
     start_ptr = ptr;
+    hexdump(ptr, len);
     while ((size_t)(ptr - start_ptr) < len) {
         // Types Unit Header
         types_header = ptr;
         ptr += sizeof(struct dwarf_types_unit_header);
 
-        level = 1;
-        while (0 < level) {
+        level = 0;
+        do {
             // index
             index = *(uint8_t *)ptr++;
             if (0 == index) {
@@ -834,26 +841,20 @@ dwarf_types_find(struct elf_ctx *elf_ctx, char *struct_name)
 
             // DW_TAG_type_unit
             abbrev = elf_ctx->abbrev_array[index];
-            switch (abbrev->tag) {
-            case DW_TAG_structure_type:
-            case DW_TAG_array_type:
-            case DW_TAG_union_type:
-            case DW_TAG_enumeration_type:
+            if (DW_CHILDREN_yes == abbrev->children)
                 level++;
-                break;
-            }
+
             //printf("TAG: %x (l=%d)\n", abbrev->tag, level);
             tag_attrib = abbrev->tag_attrib;
             while (NULL != tag_attrib) {
-                if (DW_AT_signature == tag_attrib->attrib)
-                    level--;    // TODO: is this correct???
-
-                dwarf_form_parse(elf_ctx, tag_attrib, &ptr);
+                data = dwarf_form_parse(elf_ctx, tag_attrib, &ptr);
                 if (DW_AT_name == tag_attrib->attrib)
-                    printf("DW_AT_name = \"%s\"\n", tag_attrib->form;
+                    if (0 == strcmp(data->data.addr, struct_name)) {
+                        printf("DW_AT_name = \"%s\"\n", data->data.addr);
+                    }
                 tag_attrib = tag_attrib->next;
             }
-        }
+        } while (0 < level);
     }
 
     return 0;

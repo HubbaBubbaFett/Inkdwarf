@@ -57,6 +57,18 @@ debug_print_gdb(void *ptr, char *type_name)
     system(cmd);
 }
 
+
+struct data {
+    size_t len;
+    union {
+        uint8_t uint8;
+        uint16_t uint16;
+        uint32_t uint32;
+        uint64_t uint64;
+        size_t integer;     // nicer
+        void *addr;
+    } data;
+};
 /*
  *static int
  *dwarf_info_entry_parse(void *ptr, uint8_t index)
@@ -146,10 +158,36 @@ dwarf_parse_leb128(uint8_t **ptr)
 struct type_and_name {
     char *type_name;
     char *var_name;
+    size_t offset;
     size_t byte_size;
+    //int type;       // int, float, pointer, struct, ...
+
     // int encoding;    // always assume same as machine!
     struct type_and_name *sibling;
+    struct type_and_name *next;
 };
+
+struct type_and_name *
+type_and_name_new(char *type_name, char *var_name, size_t offset, size_t byte_size)
+{
+    struct type_and_name *type_and_name;
+
+    type_and_name = malloc(sizeof(struct type_and_name));
+    if (NULL == type_and_name)
+        return NULL;
+
+    memset(type_and_name, 0, sizeof(struct type_and_name));
+    type_and_name->type_name = type_name;
+    type_and_name->var_name = var_name;
+    type_and_name->offset = offset;
+    type_and_name->byte_size = byte_size;
+    //type_and_name->type = ???
+
+    type_and_name->sibling = NULL;
+    type_and_name->next = NULL;
+
+    return type_and_name;
+}
 
 /* */
 struct tag_attrib {
@@ -511,6 +549,12 @@ abbrev_new(uint8_t index, uint16_t tag, uint8_t children)
 
 */
 
+static int
+dwarf_parse_type(void *ptr, struct abbrev *abbrev)
+{
+
+}
+
 // TODO: ??? doesnt return len, i.e. we may go out of bounds when using...
 static int
 dwarf_abbrev_parse(struct elf_ctx *elf_ctx)
@@ -657,22 +701,11 @@ dwarf_types_parse2(struct elf_ctx *elf_ctx, uint16_t index, void *ptr)
 }
 #endif
 
-struct data {
-    size_t len;
-    union {
-        uint8_t uint8;
-        uint16_t uint16;
-        uint32_t uint32;
-        uint64_t uint64;
-        void *addr;
-    } data;
-};
-
 static struct data *
 dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **ret_ptr)
 {
     void *ptr = *ret_ptr;
-    static struct data data; // return value, must copy before called again!
+    static struct data data; // return value, must copy data before called again!
     size_t len;
 
     memset(&data, 0, sizeof(data));
@@ -680,6 +713,7 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
     switch (tag_attrib->form) {
     case DW_FORM_addr:
         printf("ADDR NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_block2:
         //printf("BLOCK2 NOT IMPLEMENTED\n");
@@ -738,6 +772,7 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_flag:
         printf("FLAG NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_sdata:
         data.data.uint64 = dwarf_parse_leb128((uint8_t **)&ptr);
@@ -751,9 +786,11 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_udata:
         printf("UDATA NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_ref_addr:
         printf("REF ADDR NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_ref1:
         data.data.uint8 = *(uint8_t *)ptr;
@@ -777,9 +814,11 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_ref_udata:
         printf("REF UDATA NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_indirect:
         printf("INDIRECT NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_sec_offset:
         data.data.uint32 = *(uint32_t *)ptr;
@@ -788,9 +827,11 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_exprloc:
         printf("EXPRLOC NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_flag_present:
         printf("FLAG PRES NOT IMPLEMENTED\n");
+        exit(EXIT_FAILURE);
         break;
     case DW_FORM_ref_sig8:
         data.data.uint64 = *(uint64_t *)ptr;
@@ -808,7 +849,81 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
     return &data;
 }
 
-static int
+static struct type_and_name *
+dwarf_types_parse_tag(struct elf_ctx *elf_ctx, void *ptr, struct type_and_name *type)
+{
+    uint8_t index;
+    struct abbrev *abbrev;
+    struct tag_attrib *tag_attrib;
+    struct data *data;
+    struct type_and_name tmp, *type_and_name;
+
+    // index
+    index = *(uint8_t *)ptr++;
+    if (0 == index) {
+        return NULL;
+    }
+
+    // DW_TAG_type_unit
+    abbrev = elf_ctx->abbrev_array[index];
+    memset(&tmp, 0, sizeof(struct type_and_name));
+
+    //printf("TAG: %x (l=%d)\n", abbrev->tag, level);
+    tag_attrib = abbrev->tag_attrib;
+    while (NULL != tag_attrib) {
+        data = dwarf_form_parse(elf_ctx, tag_attrib, &ptr);
+        if (DW_AT_name == tag_attrib->attrib)
+            tmp.var_name = data->data.addr;
+        else if (DW_AT_type == tag_attrib->attrib)
+            //type_and_name.
+            printf("Implement this\n");
+        else if (DW_AT_byte_size == tag_attrib->attrib)
+            tmp.byte_size = data->data.integer;
+        else if (DW_AT_data_member_location == tag_attrib->attrib)
+            tmp.offset = data->data.integer;
+            //return abbrev;
+        }
+        tag_attrib = tag_attrib->next;
+    }
+
+    if (DW_CHILDREN_yes == abbrev->children)
+        level++;
+
+    
+}
+
+static struct abbrev *
+dwarf_types_parse(struct elf_ctx *elf_ctx)
+{
+    void *ptr = elf_ctx->elf_start_address + elf_ctx->dwarf_debug_types_sh->sh_offset;
+    //struct dwarf_compilation_unit_header *comp_unit_header;
+    struct dwarf_types_unit_header *types_header;
+    void *start_ptr;
+    size_t len;
+    int level;
+
+    len = elf_ctx->dwarf_debug_types_sh->sh_size;
+    start_ptr = ptr;
+    while ((size_t)(ptr - start_ptr) < len) {
+        // Types Unit Header
+        types_header = ptr;
+        // verify
+        if (0 != types_header->abbrev_offset) {
+            fprintf(stderr, "WARN: Types Header has non-zero abbrev offset (%x)\n", types_header->abbrev_offset);
+            exit(EXIT_FAILURE);
+        }
+        ptr += sizeof(struct dwarf_types_unit_header);
+
+        level = 0;
+        do {
+            dwarf_types_parse_tag(elf_ctx, ptr, NULL)
+        } while (0 < level);
+    }
+
+    return NULL;
+}
+
+static struct abbrev *
 dwarf_types_find(struct elf_ctx *elf_ctx, char *struct_name)
 {
     void *ptr = elf_ctx->elf_start_address + elf_ctx->dwarf_debug_types_sh->sh_offset;
@@ -824,10 +939,14 @@ dwarf_types_find(struct elf_ctx *elf_ctx, char *struct_name)
 
     len = elf_ctx->dwarf_debug_types_sh->sh_size;
     start_ptr = ptr;
-    hexdump(ptr, len);
     while ((size_t)(ptr - start_ptr) < len) {
         // Types Unit Header
         types_header = ptr;
+        // verify
+        if (0 != types_header->abbrev_offset) {
+            fprintf(stderr, "WARN: Types Header has non-zero abbrev offset (%x)\n", types_header->abbrev_offset);
+            exit(EXIT_FAILURE);
+        }
         ptr += sizeof(struct dwarf_types_unit_header);
 
         level = 0;
@@ -848,16 +967,19 @@ dwarf_types_find(struct elf_ctx *elf_ctx, char *struct_name)
             tag_attrib = abbrev->tag_attrib;
             while (NULL != tag_attrib) {
                 data = dwarf_form_parse(elf_ctx, tag_attrib, &ptr);
-                if (DW_AT_name == tag_attrib->attrib)
-                    if (0 == strcmp(data->data.addr, struct_name)) {
-                        printf("DW_AT_name = \"%s\"\n", data->data.addr);
+                if (DW_TAG_structure_type == abbrev->tag &&
+                    DW_AT_name == tag_attrib->attrib &&
+                    0 == strcmp(data->data.addr, struct_name)) {
+                        printf("Do I need to check level???\n");
+                        printf("DW_AT_name = \"%s\" (%d)\n", data->data.addr, level);
+                        return abbrev;
                     }
                 tag_attrib = tag_attrib->next;
             }
         } while (0 < level);
     }
 
-    return 0;
+    return NULL;
 }
 
 static int
@@ -1050,6 +1172,22 @@ elf_find_type(struct elf_ctx *elf_ctx, char *type_str)
 
 }
 
+void
+print_struct(struct elf_ctx *elf_ctx, void *ptr, char *struct_name)
+{
+    struct abbrev *abbrev;
+
+    abbrev = dwarf_types_print_name(elf_ctx, struct_name);
+    if (NULL == abbrev) {
+        fprintf(stderr, "TYPE \"%s\" could not be found!!!\n", struct_name);
+        return;
+    }
+
+    fprintf(stderr, "TAG = \"%d\"\n", abbrev->tag);
+
+
+}
+
 int
 main(void)
 {
@@ -1060,8 +1198,9 @@ main(void)
     printf("ELF Version: %d\n", elf_ctx->elf_fh->e_version);
     elf_section_header_parse(elf_ctx);
     dwarf_abbrev_parse(elf_ctx);
-    dwarf_types_find(elf_ctx, "struct_to_debug");
-    //elf_find_type(elf_ctx, "struct_to_debug");
+
+    print_struct(elf_ctx, &struct_to_debug_instance, "struct_to_debug");
+
     elf_close(elf_ctx);
 
     printf("ADDRESS: %p\n", &struct_to_debug_instance);

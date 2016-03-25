@@ -1778,7 +1778,7 @@ print_as_base_type(struct type *type, void *data_addr)
     }
 }
 
-static void print_as_type(struct type *type, void *addr, size_t level);    // prototype
+static void print_as_type_level(struct type *type, void *addr, size_t level);    // prototype
 
 static void
 print_as_subrange(struct type *type, void **addr, size_t level, struct type *subrange)
@@ -1803,14 +1803,14 @@ print_as_subrange(struct type *type, void **addr, size_t level, struct type *sub
     for (i = 0; i < upper_bound; i++) {
         if (NULL == subrange_next) {
             if (DW_TAG_base_type == type->tag) {
-                print_as_type(type, *addr, level + 1);
+                print_as_type_level(type, *addr, level + 1);
                 *addr += type->byte_size;   // kind of a hack, but works...
                 if (i + 1 < upper_bound)
                     fputs(", ", stderr);
             } else {
                 print_level_indent(level + 1);
                 fprintf(stderr, "[%zu] = ", i);
-                print_as_type(type, *addr, level + 1);
+                print_as_type_level(type, *addr, level + 1);
                 *addr += type->byte_size;   // kind of a hack, but works...
             }
         } else {
@@ -1869,7 +1869,7 @@ print_as_struct(struct type *type, void *addr, size_t level)
         fprintf(stderr, " (");
         print_type_name(this->type);
         fprintf(stderr, ") = ");
-        print_as_type(this, addr + this->offset, level + 1);
+        print_as_type_level(this, addr + this->offset, level + 1);
         fputs("", stderr);
     }
     print_level_indent(level);
@@ -1877,7 +1877,7 @@ print_as_struct(struct type *type, void *addr, size_t level)
 }
 
 static void
-print_as_type(struct type *type, void *addr, size_t level)
+print_as_type_level(struct type *type, void *addr, size_t level)
 {
     void *data_addr;
     struct type *this;
@@ -1899,7 +1899,7 @@ print_as_type(struct type *type, void *addr, size_t level)
         break;
     case DW_TAG_typedef:
         if (NULL != type->type)
-            print_as_type(type->type, addr, level);
+            print_as_type_level(type->type, addr, level);
         else
             fprintf(stderr, "[E] typedef has no subtype!");
         break;
@@ -1912,7 +1912,7 @@ print_as_type(struct type *type, void *addr, size_t level)
              fprintf(stderr, "[E] member must have a type!");
              return;
         }
-        print_as_type(this, addr, level);
+        print_as_type_level(this, addr, level);
         break;
     default:
         fprintf(stderr, "[E] ?????");
@@ -2008,7 +2008,7 @@ print_struct_real(struct elf_ctx *elf_ctx, void *addr, struct type *type)
     fputs("(", stderr);
     print_type_name(type);
     fprintf(stderr, ") %p = ", addr);
-    print_as_type(type, addr, 0);
+    print_as_type_level(type, addr, 0);
     fputc('\n', stderr);
 }
 
@@ -2043,7 +2043,7 @@ print_variable(void *addr, char *function_name, char *variable_name)
 }
 
 void
-print_type(void *addr, char *type_name)
+print_as_type(void *addr, char *type_name)
 {
     struct elf_ctx *elf_ctx;
     struct type *type;
@@ -2100,8 +2100,8 @@ main(void)
 
     print_variable(&struct_to_debug_instance, "main", "struct_to_debug_instance");
 
-    print_type(&struct_to_debug_instance, "struct_to_debug");
-    print_type(&sin, "sockaddr_in");
+    print_as_type(&struct_to_debug_instance, "struct_to_debug");
+    print_as_type(&sin, "sockaddr_in");
 
     return 0;
 }

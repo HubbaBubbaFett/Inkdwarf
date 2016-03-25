@@ -7,6 +7,7 @@
  *  - unions
  *  - bit stuff in structs
  *
+ *  - pretty print - aligning data
  *  - kernel static/module
  *  - c++
  */

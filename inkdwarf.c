@@ -2043,7 +2043,7 @@ print_variable(void *addr, char *function_name, char *variable_name)
 }
 
 void
-print_as_type(void *addr, char *type_name)
+print_type(void *addr, char *type_name)
 {
     struct elf_ctx *elf_ctx;
     struct type *type;
@@ -2100,8 +2100,8 @@ main(void)
 
     print_variable(&struct_to_debug_instance, "main", "struct_to_debug_instance");
 
-    print_as_type(&struct_to_debug_instance, "struct_to_debug");
-    print_as_type(&sin, "sockaddr_in");
+    print_type(&struct_to_debug_instance, "struct_to_debug");
+    print_type(&sin, "sockaddr_in");
 
     return 0;
 }

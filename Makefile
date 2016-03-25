@@ -1,11 +1,12 @@
-PROG = inkdwarf
-CC = gcc
-CFLAGS = -O0 -Wall -std=c99
-LD = ld
+PROG    = inkdwarf
+CC      = gcc
+CFLAGS  = -O0 -Wall -std=c99
+LD      = ld
 LDFLAGS =
 
-CFLAGS += -g -gpubnames -fdebug-types-section
-LDFLAGS += -g
+# debug
+CFLAGS  += -g -gpubnames -fdebug-types-section -DTEST_INKDWARF
+LDFLAGS += -g -rdynamic
 
 SRCS = inkdwarf.c
 OBJS = inkdwarf.o
@@ -18,6 +19,10 @@ $(PROG): $(OBJS)
 
 $(OBJS): $(SRCS)
 	$(CC) $(CFLAGS) -o $@ -c $^
+
+bear:
+	@make clean
+	@bear make all
 
 clean:
 	rm -f $(PROG) $(OBJS)

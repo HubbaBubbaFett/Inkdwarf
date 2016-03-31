@@ -64,11 +64,11 @@ struct {                                                                \
   #include <linux/module.h>
   #include <linux/ctype.h>  // isgraph()
   #include <linux/types.h>  // uintX_t
-  #define dwarf_printf(X, ...) pr_info(X, ##__VA_ARGS__)
-  #define dwarf_malloc(len) kmalloc(len, GFP_KERNEL)
-  #define dwarf_calloc(num, size) kzalloc(num*size, GFP_KERNEL)
-  #define dwarf_realloc(addr, len) krealloc(addr, len, GFP_KERNEL)
-  #define dwarf_free(ptr)   kfree(ptr)
+  #define dwarf_printf(X, ...)      pr_info(X, ##__VA_ARGS__)
+  #define dwarf_malloc(len)         kmalloc(len, GFP_KERNEL)
+  #define dwarf_calloc(num, size)   kzalloc(num*size, GFP_KERNEL)
+  #define dwarf_realloc(addr, len)  krealloc(addr, len, GFP_KERNEL)
+  #define dwarf_free(ptr)           kfree(ptr)
 #else
   #define _DEFAULT_SOURCE
   // #define _GNU_SOURCE     // asprintf()
@@ -94,11 +94,11 @@ struct {                                                                \
 
   #include <stdint.h> // uintX_t
   #include <stddef.h> // size_t
-  #define dwarf_printf(X, ...) fprintf(stderr, (X), ##__VA_ARGS__)
-  #define dwarf_malloc(len) malloc(len)
-  #define dwarf_calloc(num, size) calloc(num, size)
-  #define dwarf_realloc(addr, len) realloc(addr, len)
-  #define dwarf_free(ptr)   free(ptr)
+  #define dwarf_printf(X, ...)      fprintf(stderr, (X), ##__VA_ARGS__)
+  #define dwarf_malloc(len)         malloc(len)
+  #define dwarf_calloc(num, size)   calloc(num, size)
+  #define dwarf_realloc(addr, len)  realloc(addr, len)
+  #define dwarf_free(ptr)           free(ptr)
 #endif
 
 void

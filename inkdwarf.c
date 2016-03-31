@@ -102,7 +102,7 @@ struct {                                                                \
 #endif
 
 void
-hexdump_addr(void *ptr, size_t len, void *start_addr)
+dwarf_hexdump_addr(void *ptr, size_t len, void *start_addr)
 {
     unsigned char *buffer = ptr, c;
     size_t idx = 0;
@@ -125,8 +125,8 @@ hexdump_addr(void *ptr, size_t len, void *start_addr)
     }
 }
 
-void hexdump_at(void *ptr, size_t len) { hexdump_addr(ptr, len, ptr); }
-void hexdump(void *ptr, size_t len) { hexdump_addr(ptr, len, 0); }
+void dwarf_hexdump_at(void *ptr, size_t len) { dwarf_hexdump_addr(ptr, len, ptr); }
+void dwarf_hexdump(void *ptr, size_t len) { dwarf_hexdump_addr(ptr, len, 0); }
 
 #if !defined(__KERNEL__)
 void
@@ -1163,7 +1163,7 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_flag:
         dwarf_printf("[E] flag not implemented\n");
-        hexdump(ptr, 16);
+        dwarf_hexdump(ptr, 16);
         return NULL;
         break;
     case DW_FORM_sdata:
@@ -1178,12 +1178,12 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_udata:
         dwarf_printf("[E] udata not implemented\n");
-        hexdump(ptr, 16);
+        dwarf_hexdump(ptr, 16);
         return NULL;
         break;
     case DW_FORM_ref_addr:
         dwarf_printf("[E] ref addr not implemented\n");
-        hexdump(ptr, 16);
+        dwarf_hexdump(ptr, 16);
         return NULL;
         break;
     case DW_FORM_ref1:
@@ -1208,12 +1208,12 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     case DW_FORM_ref_udata:
         dwarf_printf("[E] ref udata not implemented\n");
-        hexdump(ptr, 16);
+        dwarf_hexdump(ptr, 16);
         return NULL;
         break;
     case DW_FORM_indirect:
         dwarf_printf("[E] indirect not implemented\n");
-        hexdump(ptr, 16);
+        dwarf_hexdump(ptr, 16);
         return NULL;
         break;
     case DW_FORM_sec_offset:
@@ -1243,7 +1243,7 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         data.len = 0;       // TODO: I dont know???
         break;
     default:
-        hexdump(ptr, 32);
+        dwarf_hexdump(ptr, 32);
         break;
     }
 
@@ -1254,7 +1254,7 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
 
 quit:
     dwarf_printf("[E] error in elf!\n");
-    hexdump(ptr, 16);
+    dwarf_hexdump(ptr, 16);
     return NULL;
 }
 
@@ -1351,7 +1351,7 @@ dwarf_info_get_variable_type(struct elf_ctx *elf_ctx, const char *function_name,
     type_addr = dwarf_info_get_variable_type_in_tag_list(elf_ctx, &comp_unit, function_name, variable_name);
     //if (NULL != type_addr) {
     //    dwarf_printf("FOUND @ %p\n", type_addr);
-    //    //hexdump(type_addr, 64);
+    //    //dwarf_hexdump(type_addr, 64);
     //}
 
     return type_addr;
@@ -1416,7 +1416,7 @@ dwarf_get_type_from_form(struct elf_ctx *elf_ctx, void **addr, struct type_head 
         case DW_AT_type:
             ptr = data->data.addr;
             //dwarf_printf("ADDR TYPE = %p (%p)\n", ptr, data->base_addr);
-            //hexdump_addr(ptr, 64, ptr - data->base_addr);
+            //dwarf_hexdump_addr(ptr, 64, ptr - data->base_addr);
             this->type = dwarf_get_type_from_form(elf_ctx, &ptr, &this->child_head, level + 1);
             break;
         //case DW_AT_sibling:
@@ -1603,33 +1603,33 @@ elf_section_header_parse(struct elf_ctx *elf_ctx)
     while (section_entry < section_header_entries) {
         section_header = elf_sh + section_entry;
         if (0 == strcmp(".debug_info", section_names + section_header->sh_name)) {
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size);
             elf_ctx->dwarf_debug_info_sh = section_header;
         }
         if (0 == strcmp(".debug_line", section_names + section_header->sh_name)) {
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
         }
         if (0 == strcmp(".debug_str", section_names + section_header->sh_name)) {
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
             elf_ctx->dwarf_debug_str = elf_ctx->elf_start_address + section_header->sh_offset;
         }
         if (0 == strcmp(".debug_pubnames", section_names + section_header->sh_name)) {
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
         }
         if (0 == strcmp(".debug_pubtypes", section_names + section_header->sh_name)) {
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size);
         }
         if (0 == strcmp(".debug_types", section_names + section_header->sh_name)) {
             //debug_print_gdb(section_header, "elf_section_header");
             //elf_ctx->dwarf_debug_types = elf_ctx->elf_start_address + section_header->sh_offset;
             elf_ctx->dwarf_debug_types_sh = section_header;
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
         }
         if (0 == strcmp(".debug_aranges", section_names + section_header->sh_name)) {
-            //hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
+            //dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
         }
         //if (0 == strcmp(".strtab", section_names + section_header->sh_name)) {
-        //    hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
+        //    dwarf_hexdump(elf_ctx->elf_start_address + section_header->sh_offset, section_header->sh_size, 16);
         //}
         if (0 == strcmp(".debug_abbrev", section_names + section_header->sh_name)) {
             elf_ctx->dwarf_debug_abbrev_sh = section_header;

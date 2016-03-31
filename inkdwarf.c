@@ -22,16 +22,11 @@ struct name {                                                           \
         struct type *tqh_first; /* first element */                     \
         struct type **tqh_last; /* addr of last next element */         \
 }
-
-#define TAILQ_HEAD_INITIALIZER(head)                                    \
-        { NULL, &(head).tqh_first, TRACEBUF_INITIALIZER }
-
 #define TAILQ_ENTRY(type)                                               \
 struct {                                                                \
         struct type *tqe_next;  /* next element */                      \
         struct type **tqe_prev; /* address of previous next element */  \
 }
-#define TAILQ_EMPTY(head)       ((head)->tqh_first == NULL)
 #define TAILQ_FIRST(head)       ((head)->tqh_first)
 #define TAILQ_FOREACH(var, head, field)                                 \
         for ((var) = TAILQ_FIRST((head));                               \
@@ -48,11 +43,7 @@ struct {                                                                \
         *(head)->tqh_last = (elm);                                      \
         (head)->tqh_last = &TAILQ_NEXT((elm), field);                   \
 } while (0)
-#define TAILQ_LAST(head, headname)                                      \
-        (*(((struct headname *)((head)->tqh_last))->tqh_last))
 #define TAILQ_NEXT(elm, field) ((elm)->field.tqe_next)
-#define TAILQ_PREV(elm, headname, field)                                \
-        (*(((struct headname *)((elm)->field.tqe_prev))->tqh_last))
 #define TAILQ_REMOVE(head, elm, field) do {                             \
         if ((TAILQ_NEXT((elm), field)) != NULL)                         \
                 TAILQ_NEXT((elm), field)->field.tqe_prev =              \
@@ -1287,8 +1278,6 @@ dwarf_info_get_variable_type_in_tag_list(struct elf_ctx *elf_ctx, void **comp_un
         tag_attrib = abbrev->tag_attrib;
         while (NULL != tag_attrib) {
             data = dwarf_form_parse(elf_ctx, tag_attrib, comp_unit);
-            if (NULL == data)
-                return NULL;
             if (NULL != function_name &&
                 DW_TAG_subprogram == abbrev->tag &&
                 DW_AT_name == tag_attrib->attrib &&
@@ -1355,8 +1344,7 @@ dwarf_info_get_variable_type(struct elf_ctx *elf_ctx, const char *function_name,
     }
     tag_attrib = abbrev->tag_attrib;
     while (NULL != tag_attrib) {
-        if (NULL == dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit))
-            return NULL;
+        dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit);
         tag_attrib = tag_attrib->next;
     }
 
@@ -1489,8 +1477,6 @@ dwarf_find_type_addr_by_name_in_list(struct elf_ctx *elf_ctx, void **addr, char 
         tag_attrib = abbrev->tag_attrib;
         while (NULL != tag_attrib) {
             data = dwarf_form_parse(elf_ctx, tag_attrib, addr);
-            if (NULL == data)
-                return NULL;
             if ((DW_TAG_base_type == abbrev->tag ||
                 DW_TAG_array_type == abbrev->tag ||
                 DW_TAG_typedef == abbrev->tag ||
@@ -1545,8 +1531,7 @@ dwarf_find_type_addr_by_name(struct elf_ctx *elf_ctx, char *type_name)
     // step over compile unit
     tag_attrib = abbrev->tag_attrib;
     while (NULL != tag_attrib) {
-        if (NULL == dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit))
-            return NULL;
+        dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit);
         tag_attrib = tag_attrib->next;
     }
     // find in .debug_info?
@@ -1786,8 +1771,7 @@ print_type_name(struct type *type)
     if (NULL == type)
         return -1;
 
-    if (-1 == print_type_name(type->type))
-        return -1;
+    print_type_name(type->type);
 
     switch (type->tag) {
     case DW_TAG_base_type:
@@ -1971,11 +1955,10 @@ print_as_struct(struct type *type, void *addr, size_t level)
 
         //dwarf_printf("MEMBER %s = ", this->name);
         print_level_indent(level + 1);
-        dwarf_printf("%s", this->name);
-        dwarf_printf(" (");
-        if (-1 == print_type_name(this->type))
-            break;  // TODO: what to do???
-        dwarf_printf(") = ");
+        fprintf(stderr, "%s", this->name);
+        fprintf(stderr, " (");
+        print_type_name(this->type);
+        fprintf(stderr, ") = ");
         print_as_type_level(this, addr + this->offset, level + 1);
         // dwarf_printf("");
     }
@@ -2052,14 +2035,11 @@ dwarf_find_type_of_variable(struct elf_ctx *elf_ctx, const char *variable_name)
 }
 #endif
 
-static int
+static void
 dwarf_open(struct elf_ctx *elf_ctx) {
-    if (-1 == elf_section_header_parse(elf_ctx))
-        return -1;
+    elf_section_header_parse(elf_ctx);
 
     dwarf_abbrev_parse(elf_ctx);
-
-    return 0;
 }
 
 static void
@@ -2096,8 +2076,7 @@ print_open(void)
     struct elf_ctx *elf_ctx;
 
     elf_ctx = elf_open();
-    if (-1 == dwarf_open(elf_ctx))
-        return NULL;
+    dwarf_open(elf_ctx);
 
     TAILQ_INIT(&type_cache_head);
 
@@ -2132,8 +2111,6 @@ print_variable_in(void *addr, const char *function_name, char *variable_name)
     struct type *type;
 
     elf_ctx = print_open();
-    if (NULL == elf_ctx)
-        return;
 
     type_addr = dwarf_info_get_variable_type(elf_ctx, function_name, variable_name);
     if (NULL == type_addr) {
@@ -2165,8 +2142,6 @@ print_as_type(void *addr, char *type_name)
     struct type *type;
 
     elf_ctx = print_open();
-    if (NULL == elf_ctx)
-        return;
 
     type = dwarf_get_type_by_name(elf_ctx, type_name);
     if (NULL == type) {
@@ -2195,6 +2170,8 @@ struct struct_to_debug {
     int cyclops[13];
     char dummy[3][4];
     struct monkey ebola[3];
+    unsigned long int fem;
+    unsigned long long int gamma;
     void *test;
     //void *next;
     struct struct_to_debug *next;
@@ -2207,7 +2184,7 @@ main(void)
     struct sockaddr_in sin;
 
     struct struct_to_debug struct_to_debug_instance = { 1, 2.3, { 5, 6, 7, 8, 9, 10, 11},
-        { { 99, 88, 77, 66}, { 33, 22, 11 } }, { { 12, 13 } }, NULL, &struct_to_debug_instance};
+        { { 99, 88, 77, 66}, { 33, 22, 11 } }, { { 12, 13 } }, 4, 5, NULL, &struct_to_debug_instance};
 
     signal(SIGSEGV, debug_backtrace);
 

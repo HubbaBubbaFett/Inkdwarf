@@ -1955,10 +1955,10 @@ print_as_struct(struct type *type, void *addr, size_t level)
 
         //dwarf_printf("MEMBER %s = ", this->name);
         print_level_indent(level + 1);
-        fprintf(stderr, "%s", this->name);
-        fprintf(stderr, " (");
+        dwarf_printf("%s", this->name);
+        dwarf_printf(" (");
         print_type_name(this->type);
-        fprintf(stderr, ") = ");
+        dwarf_printf(") = ");
         print_as_type_level(this, addr + this->offset, level + 1);
         // dwarf_printf("");
     }

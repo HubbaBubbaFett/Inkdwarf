@@ -6,39 +6,109 @@
  *  - enums
  *  - unions
  *  - bit stuff in structs
+ *  - .rela.* - do I need it?
  *
  *  - pretty print - aligning data
- *  - kernel static/module
+ *  - kernel static/module  __KERNEL__ / MODULE / DEBUG
  *  - c++
  */
 #ifndef NDEBUG
 
-#define _DEFAULT_SOURCE
-// #define _GNU_SOURCE     // asprintf()
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <ctype.h>
+/*
+ * Tail queue declarations.
+ */
+#define TAILQ_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *tqh_first; /* first element */                     \
+        struct type **tqh_last; /* addr of last next element */         \
+}
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/mman.h>
-#include <fcntl.h>
-#include <unistd.h>
-//#include <string.h>
-//#include <dwarf.h>
-//#include <libdwarf.h>
+#define TAILQ_HEAD_INITIALIZER(head)                                    \
+        { NULL, &(head).tqh_first, TRACEBUF_INITIALIZER }
 
-#include <stdint.h>
-#include <errno.h>
-#include <signal.h>
-#include <execinfo.h>   // backtrace()
+#define TAILQ_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *tqe_next;  /* next element */                      \
+        struct type **tqe_prev; /* address of previous next element */  \
+}
+#define TAILQ_EMPTY(head)       ((head)->tqh_first == NULL)
+#define TAILQ_FIRST(head)       ((head)->tqh_first)
+#define TAILQ_FOREACH(var, head, field)                                 \
+        for ((var) = TAILQ_FIRST((head));                               \
+            (var);                                                      \
+            (var) = TAILQ_NEXT((var), field))
+#define TAILQ_INIT(head) do {                                           \
+        TAILQ_FIRST((head)) = NULL;                                     \
+        (head)->tqh_last = &TAILQ_FIRST((head));                        \
+} while (0)
 
-#include <bsd/sys/queue.h>
+#define TAILQ_INSERT_TAIL(head, elm, field) do {                        \
+        TAILQ_NEXT((elm), field) = NULL;                                \
+        (elm)->field.tqe_prev = (head)->tqh_last;                       \
+        *(head)->tqh_last = (elm);                                      \
+        (head)->tqh_last = &TAILQ_NEXT((elm), field);                   \
+} while (0)
+#define TAILQ_LAST(head, headname)                                      \
+        (*(((struct headname *)((head)->tqh_last))->tqh_last))
+#define TAILQ_NEXT(elm, field) ((elm)->field.tqe_next)
+#define TAILQ_PREV(elm, headname, field)                                \
+        (*(((struct headname *)((elm)->field.tqe_prev))->tqh_last))
+#define TAILQ_REMOVE(head, elm, field) do {                             \
+        if ((TAILQ_NEXT((elm), field)) != NULL)                         \
+                TAILQ_NEXT((elm), field)->field.tqe_prev =              \
+                    (elm)->field.tqe_prev;                              \
+        else {                                                          \
+                (head)->tqh_last = (elm)->field.tqe_prev;               \
+        }                                                               \
+        *(elm)->field.tqe_prev = TAILQ_NEXT((elm), field);              \
+} while (0)
+#define TAILQ_FOREACH_SAFE(var, head, field, tvar)                      \
+        for ((var) = TAILQ_FIRST((head));                               \
+            (var) && ((tvar) = TAILQ_NEXT((var), field), 1);            \
+            (var) = (tvar))
 
-#include <stdint.h> // uintX_t
-#include <stddef.h> // size_t
+#ifdef __KERNEL__
+  // #include <drivers/scsi/aic7xxx/queue.h>  // TAILQ
+  #include <linux/kernel.h>
+  #include <linux/module.h>
+  #include <linux/ctype.h>  // isgraph()
+  #include <linux/types.h>  // uintX_t
+  #define dwarf_printf(X, ...) pr_info(X, ##__VA_ARGS__)
+  #define dwarf_malloc(len) kmalloc(len, GFP_KERNEL)
+  #define dwarf_calloc(num, size) kzalloc(num*size, GFP_KERNEL)
+  #define dwarf_realloc(addr, len) krealloc(addr, len, GFP_KERNEL)
+  #define dwarf_free(ptr)   kfree(ptr)
+#else
+  #define _DEFAULT_SOURCE
+  // #define _GNU_SOURCE     // asprintf()
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <string.h>
+  #include <ctype.h>
 
+  #include <sys/types.h>
+  #include <sys/stat.h>
+  #include <sys/mman.h>
+  #include <fcntl.h>
+  #include <unistd.h>
+  //#include <string.h>
+  //#include <dwarf.h>
+  //#include <libdwarf.h>
+
+  #include <stdint.h>
+  #include <errno.h>
+  #include <signal.h>
+  #include <execinfo.h>   // backtrace()
+  // #include <bsd/sys/queue.h>
+
+  #include <stdint.h> // uintX_t
+  #include <stddef.h> // size_t
+  #define dwarf_printf(X, ...) fprintf(stderr, (X), ##__VA_ARGS__)
+  #define dwarf_malloc(len) malloc(len)
+  #define dwarf_calloc(num, size) calloc(num, size)
+  #define dwarf_realloc(addr, len) realloc(addr, len)
+  #define dwarf_free(ptr)   free(ptr)
+#endif
 
 void
 hexdump_addr(void *ptr, size_t len, void *start_addr)
@@ -47,18 +117,18 @@ hexdump_addr(void *ptr, size_t len, void *start_addr)
     size_t idx = 0;
     char ascii[16 + 1] = { 0 };
     while (1) {
-        if (0 == idx % 16) fprintf(stderr, "%08lx ", (size_t)start_addr + idx);
+        if (0 == idx % 16) dwarf_printf("%08lx ", (size_t)start_addr + idx);
         if (idx < len) {
-            fprintf(stderr, "%02x ", c = buffer[idx]);
+            dwarf_printf("%02x ", c = buffer[idx]);
             ascii[idx%16] = isgraph(c) ? c : '.';
         } else {
-            fprintf(stderr, "   ");
+            dwarf_printf("   ");
             ascii[idx%16] = '\0';
         }
         if (0 == ++idx % 8)
-            fputc(' ', stderr);
+            dwarf_printf(" ");
         if (0 == idx % 16) {
-            fprintf(stderr, "%s\n", ascii);
+            dwarf_printf("%s\n", ascii);
             if (idx >= len) break;
         }
     }
@@ -67,12 +137,13 @@ hexdump_addr(void *ptr, size_t len, void *start_addr)
 void hexdump_at(void *ptr, size_t len) { hexdump_addr(ptr, len, ptr); }
 void hexdump(void *ptr, size_t len) { hexdump_addr(ptr, len, 0); }
 
+#if !defined(__KERNEL__)
 void
 debug_print_gdb(void *ptr, char *type_name)
 {
     extern const char *__progname;
     char cmd[BUFSIZ];
-    fprintf(stderr, "ADDRESS: %p\n", ptr);
+    dwarf_printf("ADDRESS: %p\n", ptr);
     //sprintf(cmd, "gdb -batch -ex 'p (struct %s)%p' /proc/self/exe %d", type_name, ptr, getpid());
     sprintf(cmd, "gdb -batch -ex 'p *(struct %s *)%p' %s %d", type_name, ptr, __progname, getpid());
     //sprintf(cmd, "gdb %s %d", __progname, getpid());
@@ -110,6 +181,8 @@ get_call_stack(void) {
 }
 #endif
 
+#endif // if !defined(__KERNEL__)
+
 // ELF
 // TODO: Assume 64 bit
 
@@ -133,7 +206,9 @@ struct elf_ident {
     char e_pad[];                       /* padding */
 };
 
-#define EI_NIDENT (16)
+#ifndef EI_NIDENT
+  #define EI_NIDENT (16)
+#endif
 
 struct elf_file_header {
     unsigned char e_ident[EI_NIDENT];   /* magic and stuff (struct elf_ident) */
@@ -278,7 +353,7 @@ struct elf_ctx {
 ///* ALTIUM extensions */
 //    /* DSP-C/Starcore __circ qualifier */
 //#define DW_TAG_ALTIUM_circ_type         0x5101 /* ALTIUM */
-//    /* Starcore __mwa_circ qualifier */ 
+//    /* Starcore __mwa_circ qualifier */
 //#define DW_TAG_ALTIUM_mwa_circ_type     0x5102 /* ALTIUM */
 //    /* Starcore __rev_carry qualifier */
 //#define DW_TAG_ALTIUM_rev_carry_type    0x5103 /* ALTIUM */
@@ -308,7 +383,7 @@ struct elf_ctx {
 //#define DW_TAG_SUN_f90_interface        0x420c /* SUN */
 //#define DW_TAG_SUN_fortran_vax_structure 0x420d /* SUN */
 //#define DW_TAG_SUN_hi                   0x42ff /* SUN */
-//    
+//
 //
 //#define DW_TAG_hi_user                  0xffff
 
@@ -592,7 +667,7 @@ struct elf_ctx {
 //
 ///* PGI (STMicroelectronics) extensions. */
 //#define DW_AT_PGI_lbase                         0x3a00 /* PGI. Block, constant, reference. This attribute is an ASTPLAB extension used to describe the array local base.  */
-//#define DW_AT_PGI_soffset                       0x3a01  /* PGI. Block, constant, reference. ASTPLAB adds this attribute to describe the section offset, or the offset to the first element in the dimension. */ 
+//#define DW_AT_PGI_soffset                       0x3a01  /* PGI. Block, constant, reference. ASTPLAB adds this attribute to describe the section offset, or the offset to the first element in the dimension. */
 //#define DW_AT_PGI_lstride                       0x3a02  /* PGI. Block, constant, reference. ASTPLAB adds this attribute to describe the linear stride or the distance between elements in the dimension. */
 //
 ///* There are two groups of Apple extensions here, it is
@@ -712,7 +787,7 @@ tag_attrib_new(uint16_t attrib, uint16_t form)
 {
     struct tag_attrib *tag_attrib;
 
-    tag_attrib = malloc(sizeof(struct tag_attrib));
+    tag_attrib = dwarf_malloc(sizeof(struct tag_attrib));
     if (NULL == tag_attrib)
         return NULL;
 
@@ -730,7 +805,7 @@ abbrev_new(uint8_t index, uint16_t tag, uint8_t children)
 {
     struct abbrev *abbrev;
 
-    abbrev = malloc(sizeof(struct abbrev));
+    abbrev = dwarf_malloc(sizeof(struct abbrev));
     if (NULL == abbrev)
         return NULL;
 
@@ -784,7 +859,7 @@ dwarf_abbrev_parse(struct elf_ctx *elf_ctx)
 
     // init abbrev_array
     abbrev_array_len = 128;
-    elf_ctx->abbrev_array = calloc(abbrev_array_len, sizeof(void *));
+    elf_ctx->abbrev_array = dwarf_calloc(abbrev_array_len, sizeof(void *));
     if (NULL == elf_ctx->abbrev_array)
         return -1;
 
@@ -796,7 +871,7 @@ dwarf_abbrev_parse(struct elf_ctx *elf_ctx)
             if (0 == ptr[0])
                 return 0;
 
-            fprintf(stderr, "[E] index mismatch (%x != %x\n", index, ptr[0]);
+            dwarf_printf("[E] index mismatch (%x != %x\n", index, ptr[0]);
             return -1;
         }
         ptr++;
@@ -812,10 +887,10 @@ dwarf_abbrev_parse(struct elf_ctx *elf_ctx)
         if (NULL == abbrev)
             return -1;            // TODO: should clean up first!
         if (index >= abbrev_array_len) {
-            ret_ptr = realloc(elf_ctx->abbrev_array, 2 * abbrev_array_len * sizeof(void *));
+            ret_ptr = dwarf_realloc(elf_ctx->abbrev_array, 2 * abbrev_array_len * sizeof(void *));
             if (NULL == ret_ptr) {
                 abbrev_array_len = 0;
-                free(elf_ctx->abbrev_array);                                                                    // free
+                dwarf_free(elf_ctx->abbrev_array);                                                                    // free
                 elf_ctx->abbrev_array = NULL;
                 return -1;
             }
@@ -871,7 +946,7 @@ type_cache_new(struct type *type, void *addr)
 {
     struct type_cache *type_cache;
 
-    type_cache = malloc(sizeof(struct type_cache));
+    type_cache = dwarf_malloc(sizeof(struct type_cache));
     if (NULL == type_cache)
         return NULL;
 
@@ -923,7 +998,7 @@ type_new(void *addr)
     struct type *type;
     struct type_cache *type_cache;
 
-    type = malloc(sizeof(struct type));
+    type = dwarf_malloc(sizeof(struct type));
     if (NULL == type)
         goto err_malloc;
 
@@ -947,7 +1022,7 @@ type_new(void *addr)
     return type;
 
 err:
-    free(type);
+    dwarf_free(type);
 err_malloc:
     return NULL;
 }
@@ -958,10 +1033,10 @@ type_remove_all(void)
     struct type_cache *type_cache, *type_cache_tmp;
 
     TAILQ_FOREACH_SAFE(type_cache, &type_cache_head, next, type_cache_tmp) {
-        free(type_cache->type);                                                                                 // free
+        dwarf_free(type_cache->type);                                                                                 // free
 
         TAILQ_REMOVE(&type_cache_head, type_cache, next);
-        free(type_cache);
+        dwarf_free(type_cache);
     }
 }
 
@@ -1021,7 +1096,7 @@ dwarf_get_base_addr(struct elf_ctx *elf_ctx, void *addr)
     }
 
     // not found
-    fprintf(stderr, "[E] base_addr error!!!\n");
+    dwarf_printf("[E] base_addr error!!!\n");
     return NULL;
 }
 
@@ -1096,9 +1171,9 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         ptr += data.len;
         break;
     case DW_FORM_flag:
-        fprintf(stderr, "[E] flag not implemented\n");
+        dwarf_printf("[E] flag not implemented\n");
         hexdump(ptr, 16);
-        exit(EXIT_FAILURE);
+        return NULL;
         break;
     case DW_FORM_sdata:
         data.data.uint64 = dwarf_parse_leb128((uint8_t **)&ptr);
@@ -1111,14 +1186,14 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         //printf("STRP: \"%s\"\n", (char *)data.addr);
         break;
     case DW_FORM_udata:
-        fprintf(stderr, "[E] udata not implemented\n");
+        dwarf_printf("[E] udata not implemented\n");
         hexdump(ptr, 16);
-        exit(EXIT_FAILURE);
+        return NULL;
         break;
     case DW_FORM_ref_addr:
-        fprintf(stderr, "[E] ref addr not implemented\n");
+        dwarf_printf("[E] ref addr not implemented\n");
         hexdump(ptr, 16);
-        exit(EXIT_FAILURE);
+        return NULL;
         break;
     case DW_FORM_ref1:
         data.data.addr = dwarf_get_base_addr(elf_ctx, ptr) + *(uint8_t *)ptr;
@@ -1141,14 +1216,14 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         ptr += data.len;
         break;
     case DW_FORM_ref_udata:
-        fprintf(stderr, "[E] ref udata not implemented\n");
+        dwarf_printf("[E] ref udata not implemented\n");
         hexdump(ptr, 16);
-        exit(EXIT_FAILURE);
+        return NULL;
         break;
     case DW_FORM_indirect:
-        fprintf(stderr, "[E] indirect not implemented\n");
+        dwarf_printf("[E] indirect not implemented\n");
         hexdump(ptr, 16);
-        exit(EXIT_FAILURE);
+        return NULL;
         break;
     case DW_FORM_sec_offset:
         data.data.uint32 = *(uint32_t *)ptr;
@@ -1181,15 +1256,15 @@ dwarf_form_parse(struct elf_ctx *elf_ctx, struct tag_attrib *tag_attrib, void **
         break;
     }
 
-    //fprintf(stderr, "data: %lx\n", data.uint64);
+    //dwarf_printf("data: %lx\n", data.uint64);
 
     *ret_ptr = ptr;
     return &data;
 
 quit:
-    fprintf(stderr, "[E] error in elf!\n");
+    dwarf_printf("[E] error in elf!\n");
     hexdump(ptr, 16);
-    exit(EXIT_FAILURE);
+    return NULL;
 }
 
 static void *
@@ -1212,6 +1287,8 @@ dwarf_info_get_variable_type_in_tag_list(struct elf_ctx *elf_ctx, void **comp_un
         tag_attrib = abbrev->tag_attrib;
         while (NULL != tag_attrib) {
             data = dwarf_form_parse(elf_ctx, tag_attrib, comp_unit);
+            if (NULL == data)
+                return NULL;
             if (NULL != function_name &&
                 DW_TAG_subprogram == abbrev->tag &&
                 DW_AT_name == tag_attrib->attrib &&
@@ -1256,7 +1333,7 @@ dwarf_info_get_variable_type_in_tag_list(struct elf_ctx *elf_ctx, void **comp_un
 }
 
 static void *
-dwarf_info_get_variable_type(struct elf_ctx *elf_ctx, char *function_name, char *variable_name)
+dwarf_info_get_variable_type(struct elf_ctx *elf_ctx, const char *function_name, char *variable_name)
 {
     struct dwarf_compilation_unit_header *comp_unit_header;
     void *comp_unit;
@@ -1273,18 +1350,19 @@ dwarf_info_get_variable_type(struct elf_ctx *elf_ctx, char *function_name, char 
     index = dwarf_get_index(&comp_unit);
     abbrev = elf_ctx->abbrev_array[index];
     if (DW_TAG_compile_unit != abbrev->tag) {
-        fprintf(stderr, "[E] first tag in info must be a compile unit!!!\n");
+        dwarf_printf("[E] first tag in info must be a compile unit!!!\n");
         return NULL;
     }
     tag_attrib = abbrev->tag_attrib;
     while (NULL != tag_attrib) {
-        dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit);
+        if (NULL == dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit))
+            return NULL;
         tag_attrib = tag_attrib->next;
     }
 
     type_addr = dwarf_info_get_variable_type_in_tag_list(elf_ctx, &comp_unit, function_name, variable_name);
     //if (NULL != type_addr) {
-    //    fprintf(stderr, "FOUND @ %p\n", type_addr);
+    //    dwarf_printf("FOUND @ %p\n", type_addr);
     //    //hexdump(type_addr, 64);
     //}
 
@@ -1304,14 +1382,14 @@ dwarf_get_type_from_form(struct elf_ctx *elf_ctx, void **addr, struct type_head 
     void *ptr;
 
     index = dwarf_get_index(addr);
-    //fprintf(stderr, "INDEX: %d (%ld)\n", (int)index, level);
+    //dwarf_printf("INDEX: %d (%ld)\n", (int)index, level);
     if (0 == index) {
         return NULL;
     }
 
     this = type_cache_get(*addr);
     if (NULL != this) {
-        //fprintf(stderr, "FOUND IN CACHE!\n");
+        //dwarf_printf("FOUND IN CACHE!\n");
         return this;
     }
 
@@ -1329,37 +1407,37 @@ dwarf_get_type_from_form(struct elf_ctx *elf_ctx, void **addr, struct type_head 
         switch (tag_attrib->attrib) {
         case DW_AT_name:
             this->name = data->data.addr;
-            //fprintf(stderr, "NAME: (%s)\n", this->name);
+            //dwarf_printf("NAME: (%s)\n", this->name);
             break;
         case DW_AT_data_member_location:
             this->offset = data->data.integer;
-            //fprintf(stderr, "LOC: (%s) %s %p\n", this->type?this->type->name:"", this->name, (void *)this->offset);
+            //dwarf_printf("LOC: (%s) %s %p\n", this->type?this->type->name:"", this->name, (void *)this->offset);
             break;
         case DW_AT_byte_size:
             this->byte_size = data->data.integer;
-            //fprintf(stderr, "BS: (%s) %s %zd\n", this->type?this->type->name:"", this->name, this->byte_size);
+            //dwarf_printf("BS: (%s) %s %zd\n", this->type?this->type->name:"", this->name, this->byte_size);
             break;
         case DW_AT_upper_bound:
             this->upper_bound = data->data.integer;
-            //fprintf(stderr, "UPPER BOUND: %s %s %zd\n", this->name, this->name, this->upper_bound);
+            //dwarf_printf("UPPER BOUND: %s %s %zd\n", this->name, this->name, this->upper_bound);
             break;
         case DW_AT_encoding:
             this->encoding = data->data.integer;
-            //fprintf(stderr, "ENC: %s %s %d\n", this->name, this->name, this->encoding);
+            //dwarf_printf("ENC: %s %s %d\n", this->name, this->name, this->encoding);
             break;
         case DW_AT_type:
             ptr = data->data.addr;
-            //fprintf(stderr, "ADDR TYPE = %p (%p)\n", ptr, data->base_addr);
+            //dwarf_printf("ADDR TYPE = %p (%p)\n", ptr, data->base_addr);
             //hexdump_addr(ptr, 64, ptr - data->base_addr);
             this->type = dwarf_get_type_from_form(elf_ctx, &ptr, &this->child_head, level + 1);
             break;
         //case DW_AT_sibling:
         //case DW_AT_decl_file:
         //case DW_AT_decl_line:
-        //    //fprintf(stderr, "ignoring tag\n");
+        //    //dwarf_printf("ignoring tag\n");
         //    break;
         default:
-            //fprintf(stderr, "unknown tag (0x%04x)\n", tag_attrib->attrib);
+            //dwarf_printf("unknown tag (0x%04x)\n", tag_attrib->attrib);
             break;
         }
 
@@ -1411,6 +1489,8 @@ dwarf_find_type_addr_by_name_in_list(struct elf_ctx *elf_ctx, void **addr, char 
         tag_attrib = abbrev->tag_attrib;
         while (NULL != tag_attrib) {
             data = dwarf_form_parse(elf_ctx, tag_attrib, addr);
+            if (NULL == data)
+                return NULL;
             if ((DW_TAG_base_type == abbrev->tag ||
                 DW_TAG_array_type == abbrev->tag ||
                 DW_TAG_typedef == abbrev->tag ||
@@ -1459,13 +1539,14 @@ dwarf_find_type_addr_by_name(struct elf_ctx *elf_ctx, char *type_name)
     index = dwarf_get_index(&comp_unit);
     abbrev = elf_ctx->abbrev_array[index];
     if (DW_TAG_compile_unit != abbrev->tag) {
-        fprintf(stderr, "[E] first tag in info must be a compile unit!!!\n");
+        dwarf_printf("[E] first tag in info must be a compile unit!!!\n");
         return NULL;
     }
     // step over compile unit
     tag_attrib = abbrev->tag_attrib;
     while (NULL != tag_attrib) {
-        dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit);
+        if (NULL == dwarf_form_parse(elf_ctx, tag_attrib, &comp_unit))
+            return NULL;
         tag_attrib = tag_attrib->next;
     }
     // find in .debug_info?
@@ -1577,8 +1658,8 @@ elf_section_header_parse(struct elf_ctx *elf_ctx)
         NULL == elf_ctx->dwarf_debug_abbrev_sh ||
         NULL == elf_ctx->dwarf_debug_info_sh)
     {
-        fprintf(stderr, "[E] Not compiled with debug symbols!\n");
-        exit(EXIT_FAILURE);
+        dwarf_printf("[E] Not compiled with debug symbols!\n");
+        return -1;
     }
 
     //dwarf_types_parse(elf_ctx->dwarf_debug_types);
@@ -1586,6 +1667,13 @@ elf_section_header_parse(struct elf_ctx *elf_ctx)
     return 0;
 }
 
+#ifdef __KERNEL__
+static struct elf_ctx *
+elf_open(void)
+{
+    return NULL;
+}
+#else // __KERNEL
 static struct elf_ctx *
 elf_open(void)
 {
@@ -1596,7 +1684,7 @@ elf_open(void)
     struct elf_ident *elf_ident;
     struct stat stat;
 
-    elf_ctx = malloc(sizeof(struct elf_ctx));
+    elf_ctx = dwarf_malloc(sizeof(struct elf_ctx));
     if (NULL == elf_ctx)
         goto err_malloc;
 
@@ -1631,7 +1719,7 @@ elf_open(void)
     //debug_print(elf_ctx->elf_fh, "elf_file_header");
     elf_ident = (struct elf_ident *)elf_ctx->elf_fh;
     if (0 != memcmp(magic, &elf_ident->magic.magics, sizeof(magic))) {
-        fprintf(stderr, "[E] ELF Magic error\n");
+        dwarf_printf("[E] ELF Magic error\n");
         goto err_elf_magic;
     }
 
@@ -1644,17 +1732,26 @@ err_mmap:
     close(elf_ctx->elf_fd);
 err_open:
 err_stat:
-    free(elf_ctx);
+    dwarf_free(elf_ctx);
 err_malloc:
     return NULL;
 }
+#endif // __KERNEL__
 
+#ifdef __KERNEL__
+static void
+elf_close(struct elf_ctx *elf_ctx)
+{
+}
+#else
 static void
 elf_close(struct elf_ctx *elf_ctx)
 {
     munmap(elf_ctx->elf_start_address, elf_ctx->elf_size);
-    free(elf_ctx);                                                                                              // free
+    dwarf_free(elf_ctx);                                                                                              // free
 }
+#endif // __KERNEL__
+
 
 #if 0
 static int
@@ -1676,68 +1773,71 @@ testing_foo_function(void)
 static void
 print_level_indent(size_t level)
 {
-    fputc('\n', stderr);
+    dwarf_printf("\n");
      while (level-- > 0)
-         fputs("  ", stderr);
+         dwarf_printf("  ");
 }
 
-static void
+static int
 print_type_name(struct type *type)
 {
     struct type *that;
 
     if (NULL == type)
-        return;
+        return -1;
 
-    print_type_name(type->type);
+    if (-1 == print_type_name(type->type))
+        return -1;
 
     switch (type->tag) {
     case DW_TAG_base_type:
         switch (type->encoding) {
         case DW_ATE_signed:
         case DW_ATE_signed_char:
-            fprintf(stderr, "i%zd", type->byte_size);
+            dwarf_printf("i%zd", type->byte_size);
             break;
         case DW_ATE_unsigned:
         case DW_ATE_unsigned_char:
-            fprintf(stderr, "u%zd", type->byte_size);
+            dwarf_printf("u%zd", type->byte_size);
             break;
         case DW_ATE_float:
-            fprintf(stderr, "f%zd", type->byte_size);
+            dwarf_printf("f%zd", type->byte_size);
             break;
         default:
-            fprintf(stderr, "[0x%x]%zd", type->tag, type->byte_size);
+            dwarf_printf("[0x%x]%zd", type->tag, type->byte_size);
             break;
         }
         break;
     case DW_TAG_pointer_type:
         // if next type is NULL -> void
         if (NULL == type->type)
-            fputs("void ", stderr);
+            dwarf_printf("void ");
         else
-            fputs(" ", stderr);
+            dwarf_printf(" ");
 
-        fputs("*", stderr);
+        dwarf_printf("*");
         break;
     case DW_TAG_array_type:
         TAILQ_FOREACH(that, &type->child_head, next) {
             // subrange
             if (DW_TAG_subrange_type != that->tag) {
-                fprintf(stderr, "[E] must be subrange type!\n");
-                exit(EXIT_FAILURE);
+                dwarf_printf("[E] must be subrange type!\n");
+                return -1;
             }
-            fprintf(stderr, "[%zd]", that->upper_bound + 1);
+            dwarf_printf("[%zd]", that->upper_bound + 1);
         }
         break;
     case DW_TAG_typedef:
         break;
     case DW_TAG_structure_type:
-        fputs(type->name, stderr);
+        dwarf_printf("%s", type->name);
         break;
     default:
-        fprintf(stderr, "[E] couldnt print base type name(%x,%zx)\n", type->encoding, type->byte_size);
+        dwarf_printf("[E] couldnt print base type name(%x,%zx)\n", type->encoding, type->byte_size);
         break;
     }
+
+    return 0;
 }
 
 static void
@@ -1746,42 +1846,46 @@ print_as_base_type(struct type *type, void *data_addr)
     switch (type->encoding) {
     case DW_ATE_signed_char:
         switch (type->byte_size) {
-        case 1:     fprintf(stderr, "%d", *(int8_t *)data_addr); break;
+        case 1:     dwarf_printf("%d", *(int8_t *)data_addr); break;
         }
         break;
     case DW_ATE_unsigned_char:
         switch (type->byte_size) {
-        case 1:     fprintf(stderr, "%u", *(uint8_t *)data_addr); break;
+        case 1:     dwarf_printf("%u", *(uint8_t *)data_addr); break;
         }
         break;
     case DW_ATE_signed:
         switch (type->byte_size) {
-        case 1:     fprintf(stderr, "%d", *(int8_t *)data_addr); break;
-        case 2:     fprintf(stderr, "%d", *(int16_t *)data_addr); break;
-        case 4:     fprintf(stderr, "%d", *(int32_t *)data_addr); break;
-        case 8:     fprintf(stderr, "%ld", *(int64_t *)data_addr); break;
+        case 1:     dwarf_printf("%d", *(int8_t *)data_addr); break;
+        case 2:     dwarf_printf("%d", *(int16_t *)data_addr); break;
+        case 4:     dwarf_printf("%d", *(int32_t *)data_addr); break;
+        case 8:     dwarf_printf("%ld", *(long int *)data_addr); break;
         }
         break;
     case DW_ATE_unsigned:
         switch (type->byte_size) {
-        case 1:     fprintf(stderr, "%u", *(uint8_t *)data_addr); break;
-        case 2:     fprintf(stderr, "%u", *(uint16_t *)data_addr); break;
-        case 4:     fprintf(stderr, "%u", *(uint32_t *)data_addr); break;
-        case 8:     fprintf(stderr, "%lu", *(uint64_t *)data_addr); break;
+        case 1:     dwarf_printf("%u", *(uint8_t *)data_addr); break;
+        case 2:     dwarf_printf("%u", *(uint16_t *)data_addr); break;
+        case 4:     dwarf_printf("%u", *(uint32_t *)data_addr); break;
+        case 8:     dwarf_printf("%lu", *(long int *)data_addr); break;
         }
         break;
     case DW_ATE_float:
-        fprintf(stderr, "%f", *(float *)data_addr);
+#ifdef __KERNEL__
+        dwarf_printf("[E] cant use floats in kernel");
+#else
+        dwarf_printf("%f", *(float *)data_addr);
+#endif
         break;
     default:
-        fprintf(stderr, "[E] Couldnt print base type (%x,%zu)\n", type->encoding, type->byte_size);
+        dwarf_printf("[E] Couldnt print base type (%x,%zu)\n", type->encoding, type->byte_size);
         break;
     }
 }
 
 static void print_as_type_level(struct type *type, void *addr, size_t level);    // prototype
 
-static void
+static int
 print_as_subrange(struct type *type, void **addr, size_t level, struct type *subrange)
 {
     size_t i;
@@ -1789,17 +1893,17 @@ print_as_subrange(struct type *type, void **addr, size_t level, struct type *sub
     struct type *subrange_next;
 
     if (NULL == type || NULL == addr || NULL == subrange)
-        return;
+        return -1;
 
     if (DW_TAG_subrange_type != subrange->tag) {
-        fprintf(stderr, "[E] Must be subrange tag!\n");
-        exit(EXIT_FAILURE);
+        dwarf_printf("[E] Must be subrange tag!\n");
+        return -1;
     }
 
     upper_bound = subrange->upper_bound + 1;
     subrange_next = TAILQ_NEXT(subrange, next);
 
-    fputs("{ ", stderr);
+    dwarf_printf("{ ");
     //print_level_indent(level);
     for (i = 0; i < upper_bound; i++) {
         if (NULL == subrange_next) {
@@ -1807,27 +1911,28 @@ print_as_subrange(struct type *type, void **addr, size_t level, struct type *sub
                 print_as_type_level(type, *addr, level + 1);
                 *addr += type->byte_size;   // kind of a hack, but works...
                 if (i + 1 < upper_bound)
-                    fputs(", ", stderr);
+                    dwarf_printf(", ");
             } else {
                 print_level_indent(level + 1);
-                fprintf(stderr, "[%zu] = ", i);
+                dwarf_printf("[%zu] = ", i);
                 print_as_type_level(type, *addr, level + 1);
                 *addr += type->byte_size;   // kind of a hack, but works...
             }
         } else {
             print_as_subrange(type, addr, level + 7, subrange_next);
             if (i + 1 < upper_bound)
-                fputs(", ", stderr);
+                dwarf_printf(", ");
         }
     }
 
     if (DW_TAG_base_type == type->tag) {
-        fputs(" }", stderr);
+        dwarf_printf(" }");
     } else {
         print_level_indent(level);
-        fputs("}", stderr);
+        dwarf_printf("}");
     }
 
+    return 0;
 }
 
 static void
@@ -1837,8 +1942,8 @@ print_as_array(struct type *type, void *addr, size_t level)
 
     this = type->type;
     if (NULL == this) {
-        fprintf(stderr, "[E] array must have a type!\n");
-        exit(EXIT_FAILURE);
+        dwarf_printf("[E] array must have a type!\n");
+        return;
     }
 
     print_as_subrange(this, &addr, level, TAILQ_FIRST(&type->child_head));
@@ -1851,30 +1956,32 @@ print_as_struct(struct type *type, void *addr, size_t level)
     struct type *this;
 
     if (NULL != type->type) {
-        fprintf(stderr, "[E] structure cant refer to a subtype!\n");
-        exit(EXIT_FAILURE);
+        dwarf_printf("[E] structure cant refer to a subtype!\n");
+        return;
     }
 
     //print_level_indent(level);
-    fprintf(stderr, "{");
+    dwarf_printf("{");
     TAILQ_FOREACH(this, &type->child_head, next) {
         // members
         if (DW_TAG_member != this->tag) {
-            fprintf(stderr, "[E] must be member tag!\n");
-            exit(EXIT_FAILURE);
+            dwarf_printf("[E] must be member tag!\n");
+            return;
         }
 
-        //fprintf(stderr, "MEMBER %s = ", this->name);
+        //dwarf_printf("MEMBER %s = ", this->name);
         print_level_indent(level + 1);
-        fprintf(stderr, "%s", this->name);
-        fprintf(stderr, " (");
-        print_type_name(this->type);
-        fprintf(stderr, ") = ");
+        dwarf_printf("%s", this->name);
+        dwarf_printf(" (");
+        if (-1 == print_type_name(this->type))
+            break;  // TODO: what to do???
+        dwarf_printf(") = ");
         print_as_type_level(this, addr + this->offset, level + 1);
-        fputs("", stderr);
+        // dwarf_printf("");
     }
     print_level_indent(level);
-    fputs("}", stderr);
+    dwarf_printf("}");
+    return;
 }
 
 static void
@@ -1891,9 +1998,9 @@ print_as_type_level(struct type *type, void *addr, size_t level)
         break;
     case DW_TAG_pointer_type:
         if (NULL == *(void **)data_addr)
-            fputs("NULL", stderr);
+            dwarf_printf("NULL");
         else
-            fprintf(stderr, "%p", *(void **)data_addr);
+            dwarf_printf("%p", *(void **)data_addr);
         break;
     case DW_TAG_array_type:
         print_as_array(type, addr, level);
@@ -1902,7 +2009,7 @@ print_as_type_level(struct type *type, void *addr, size_t level)
         if (NULL != type->type)
             print_as_type_level(type->type, addr, level);
         else
-            fprintf(stderr, "[E] typedef has no subtype!");
+            dwarf_printf("[E] typedef has no subtype!");
         break;
     case DW_TAG_structure_type:
         print_as_struct(type, addr, level);
@@ -1910,13 +2017,13 @@ print_as_type_level(struct type *type, void *addr, size_t level)
     case DW_TAG_member:
         this = type->type;
         if (NULL == this) {
-             fprintf(stderr, "[E] member must have a type!");
+             dwarf_printf("[E] member must have a type!");
              return;
         }
         print_as_type_level(this, addr, level);
         break;
     default:
-        fprintf(stderr, "[E] ?????");
+        dwarf_printf("[E] ?????");
         break;
     }
 }
@@ -1938,18 +2045,21 @@ dwarf_find_type_of_variable(struct elf_ctx *elf_ctx, const char *variable_name)
     }
 
     if (NULL == type_unit_header || NULL == tag_addr) {
-        fprintf(stderr, "NO SUCH TYPE!!! (%s)\n", struct_name);
+        dwarf_printf("NO SUCH TYPE!!! (%s)\n", struct_name);
         return;
     }
 
 }
 #endif
 
-static void
+static int
 dwarf_open(struct elf_ctx *elf_ctx) {
-    elf_section_header_parse(elf_ctx);
+    if (-1 == elf_section_header_parse(elf_ctx))
+        return -1;
 
     dwarf_abbrev_parse(elf_ctx);
+
+    return 0;
 }
 
 static void
@@ -1966,17 +2076,17 @@ dwarf_close(struct elf_ctx *elf_ctx)
         tag_attrib = abbrev->tag_attrib;
         while (NULL != tag_attrib) {
             tag_attrib_next = tag_attrib->next;
-            free(tag_attrib);                                                                                   // free
+            dwarf_free(tag_attrib);                                                                                   // free
             tag_attrib = tag_attrib_next;
         }
 
         index++;
         abbrev_next = elf_ctx->abbrev_array[index];
-        free(abbrev);                                                                                           // free
+        dwarf_free(abbrev);                                                                                           // free
         abbrev = abbrev_next;
     }
 
-    free(elf_ctx->abbrev_array);                                                                                // free
+    dwarf_free(elf_ctx->abbrev_array);                                                                                // free
     elf_ctx->abbrev_array = NULL;
 }
 
@@ -1986,7 +2096,8 @@ print_open(void)
     struct elf_ctx *elf_ctx;
 
     elf_ctx = elf_open();
-    dwarf_open(elf_ctx);
+    if (-1 == dwarf_open(elf_ctx))
+        return NULL;
 
     TAILQ_INIT(&type_cache_head);
 
@@ -2006,26 +2117,28 @@ print_close(struct elf_ctx *elf_ctx, struct type *type)
 static void
 print_struct_real(struct elf_ctx *elf_ctx, void *addr, struct type *type)
 {
-    fputs("(", stderr);
+    dwarf_printf("(");
     print_type_name(type);
-    fprintf(stderr, ") %p = ", addr);
+    dwarf_printf(") %p = ", addr);
     print_as_type_level(type, addr, 0);
-    fputc('\n', stderr);
+    dwarf_printf("\n");
 }
 
 void
-print_variable(void *addr, char *function_name, char *variable_name)
+print_variable_in(void *addr, const char *function_name, char *variable_name)
 {
     void *type_addr;
     struct elf_ctx *elf_ctx;
     struct type *type;
 
     elf_ctx = print_open();
+    if (NULL == elf_ctx)
+        return;
 
     type_addr = dwarf_info_get_variable_type(elf_ctx, function_name, variable_name);
     if (NULL == type_addr) {
-        fprintf(stderr, "[E] didnt find variable or type\n");
-        exit(EXIT_FAILURE);
+        dwarf_printf("[E] didnt find variable or type\n");
+        return;
     }
 
     TAILQ_INIT(&type_cache_head);
@@ -2033,7 +2146,7 @@ print_variable(void *addr, char *function_name, char *variable_name)
     //ret_type = dwarf_get_type_from_form(elf_ctx, &type_info_addr, &type_head, 0);
     type = dwarf_get_type_from_form(elf_ctx, &type_addr, NULL, 0);
     if (NULL == type) {
-        fprintf(stderr, "[E] Failed to get type from form\n");
+        dwarf_printf("[E] Failed to get type from form\n");
         return;
     }
 
@@ -2043,6 +2156,8 @@ print_variable(void *addr, char *function_name, char *variable_name)
     return;
 }
 
+#define print_variable(addr, variable_name) print_variable_in((addr), __FUNCTION__, (variable_name))
+
 void
 print_as_type(void *addr, char *type_name)
 {
@@ -2050,10 +2165,12 @@ print_as_type(void *addr, char *type_name)
     struct type *type;
 
     elf_ctx = print_open();
+    if (NULL == elf_ctx)
+        return;
 
     type = dwarf_get_type_by_name(elf_ctx, type_name);
     if (NULL == type) {
-        fprintf(stderr, "[E] didnt find type!\n");
+        dwarf_printf("[E] didnt find type!\n");
         return;
     }
 
@@ -2099,7 +2216,7 @@ main(void)
     sin.sin_port = 999;
     sin.sin_addr.s_addr = 7777777;
 
-    print_variable(&struct_to_debug_instance, "main", "struct_to_debug_instance");
+    print_variable(&struct_to_debug_instance, "struct_to_debug_instance");
 
     print_as_type(&struct_to_debug_instance, "struct_to_debug");
     print_as_type(&sin, "sockaddr_in");
@@ -2107,6 +2224,7 @@ main(void)
     return 0;
 }
 #endif // TEST_INKDWARF
+
 
 #endif // NDEBUG
 #endif // __INKDWARF__

@@ -881,7 +881,7 @@ dwarf_abbrev_parse(struct elf_ctx *elf_ctx)
             ret_ptr = dwarf_realloc(elf_ctx->abbrev_array, 2 * abbrev_array_len * sizeof(void *));
             if (NULL == ret_ptr) {
                 abbrev_array_len = 0;
-                dwarf_free(elf_ctx->abbrev_array);                                                                    // free
+                dwarf_free(elf_ctx->abbrev_array);
                 elf_ctx->abbrev_array = NULL;
                 return -1;
             }
@@ -1024,7 +1024,7 @@ type_remove_all(void)
     struct type_cache *type_cache, *type_cache_tmp;
 
     TAILQ_FOREACH_SAFE(type_cache, &type_cache_head, next, type_cache_tmp) {
-        dwarf_free(type_cache->type);                                                                                 // free
+        dwarf_free(type_cache->type);
 
         TAILQ_REMOVE(&type_cache_head, type_cache, next);
         dwarf_free(type_cache);
@@ -1733,7 +1733,7 @@ static void
 elf_close(struct elf_ctx *elf_ctx)
 {
     munmap(elf_ctx->elf_start_address, elf_ctx->elf_size);
-    dwarf_free(elf_ctx);                                                                                              // free
+    dwarf_free(elf_ctx);
 }
 #endif // __KERNEL__
 
@@ -2056,17 +2056,17 @@ dwarf_close(struct elf_ctx *elf_ctx)
         tag_attrib = abbrev->tag_attrib;
         while (NULL != tag_attrib) {
             tag_attrib_next = tag_attrib->next;
-            dwarf_free(tag_attrib);                                                                                   // free
+            dwarf_free(tag_attrib);
             tag_attrib = tag_attrib_next;
         }
 
         index++;
         abbrev_next = elf_ctx->abbrev_array[index];
-        dwarf_free(abbrev);                                                                                           // free
+        dwarf_free(abbrev);
         abbrev = abbrev_next;
     }
 
-    dwarf_free(elf_ctx->abbrev_array);                                                                                // free
+    dwarf_free(elf_ctx->abbrev_array);
     elf_ctx->abbrev_array = NULL;
 }
 
